@@ -24,7 +24,7 @@ import torch.nn as nn
 import torchvision.models as tvm
 
 from data_prep import set_seed, N_WAY, K_SHOT, SEED
-from episode_utils import DEVICE, RESULTS_DIR, load_meta, evaluate_episodes, save_result
+from episode_utils import DEVICE, RESULTS_DIR, load_meta, evaluate_episodes, save_result, effective_n_way
 
 EVAL_EPISODES = 600
 
@@ -120,9 +120,17 @@ def tune_hyperparams_on_validation(base_model, class_to_images, validation_class
     """Thử vài cấu hình (ft_steps, ft_lr) trên validation_classes (Pepper),
     chọn cấu hình có accuracy trung bình cao nhất — đúng vai trò của tập
     validation theo checklist Giai đoạn 0. Dùng K_SHOT mặc định (đã thống
-    nhất ở Giai đoạn 0) làm điều kiện đại diện khi tune."""
+    nhất ở Giai đoạn 0) làm điều kiện đại diện khi tune.
+
+    Lưu ý: validation_classes (Pepper) chỉ có 2 lớp, ít hơn N_WAY=5, nên
+    dùng effective_n_way() để tự động giảm xuống 2-way khi tune — không
+    ảnh hưởng đến đánh giá 5-way chính thức trên novel classes (Durian)."""
+    val_n_way = effective_n_way(validation_classes, desired_n_way=N_WAY,
+                                 pool_name="validation_classes (Pepper)")
+
     print(f"Đang tune FT_STEPS / FT_LR trên validation classes "
-          f"({len(validation_classes)} lớp, {N_VAL_EPISODES} episode/cấu hình)...")
+          f"({len(validation_classes)} lớp, {val_n_way}-way, "
+          f"{N_VAL_EPISODES} episode/cấu hình)...")
 
     best_acc = -1.0
     best_params = (FT_STEPS, FT_LR)
@@ -130,10 +138,10 @@ def tune_hyperparams_on_validation(base_model, class_to_images, validation_class
 
     for steps in FT_STEPS_CANDIDATES:
         for lr in FT_LR_CANDIDATES:
-            predict_fn = make_predict_fn(base_model, N_WAY, ft_steps=steps, ft_lr=lr)
+            predict_fn = make_predict_fn(base_model, val_n_way, ft_steps=steps, ft_lr=lr)
             result = evaluate_episodes(
                 predict_fn, class_to_images, validation_classes,
-                n_episodes=N_VAL_EPISODES, k_shot=K_SHOT,
+                n_episodes=N_VAL_EPISODES, n_way=val_n_way, k_shot=K_SHOT,
             )
             acc = result['mean_accuracy']
             print(f"  ft_steps={steps:3d}, ft_lr={lr:.0e} -> "

@@ -46,6 +46,24 @@ def load_meta():
         return json.load(f)
 
 
+def effective_n_way(class_pool, desired_n_way=N_WAY, pool_name="tập lớp"):
+    """Trả về n_way THỰC TẾ có thể dùng cho 1 tập lớp cụ thể — không thể
+    vượt quá số lớp có sẵn trong tập đó (random.sample sẽ lỗi nếu vượt).
+
+    Vấn đề thực tế: validation_classes (Pepper trong PlantVillage) chỉ có
+    2 lớp bệnh, trong khi N_WAY=5 đã thống nhất ở Giai đoạn 0. Việc giảm
+    xuống n-way nhỏ hơn CHỈ áp dụng khi đánh giá/tune trên validation —
+    không ảnh hưởng đến đánh giá cuối cùng trên novel classes (Durian),
+    tập này có đủ 6 lớp cho N_WAY=5."""
+    n = min(desired_n_way, len(class_pool))
+    if n < desired_n_way:
+        print(f"Lưu ý: {pool_name} chỉ có {len(class_pool)} lớp (< N_WAY="
+              f"{desired_n_way} đã thống nhất ở Giai đoạn 0) — tạm dùng "
+              f"{n}-way khi đánh giá trên {pool_name}. Không ảnh hưởng "
+              f"đến kết quả đánh giá chính thức trên novel classes.")
+    return n
+
+
 def sample_episode(class_to_images, class_pool, n_way=N_WAY, k_shot=K_SHOT,
                     q_query=Q_QUERY, transform_support=None, transform_query=None):
     """Lấy ngẫu nhiên 1 episode: n_way lớp, mỗi lớp k_shot ảnh support +

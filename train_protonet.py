@@ -23,6 +23,7 @@ from data_prep import set_seed, N_WAY, K_SHOT, Q_QUERY, SEED
 from episode_utils import (
     DEVICE, MODELS_DIR, RESULTS_DIR, load_meta, sample_episode,
     evaluate_episodes, save_result, train_transform, eval_transform,
+    effective_n_way,
 )
 
 N_TRAIN_EPISODES_PER_EPOCH = 100
@@ -110,19 +111,19 @@ def protonet_forward(model, support_x, support_y, query_x, n_way):
 #    + đánh giá định kỳ trên validation_classes để chọn checkpoint tốt nhất
 # ============================================================
 
-def quick_validate(model, class_to_images, validation_classes, n_episodes=N_VAL_EPISODES):
+def quick_validate(model, class_to_images, validation_classes, n_episodes=N_VAL_EPISODES, val_n_way=None):
     """Đánh giá nhanh trên validation classes (Pepper) — KHÔNG dùng để
-    train, chỉ để theo dõi mô hình có đang tổng quát hoá tốt không.
+    train, chỉ để theo dõi mô hình có đang tổng quát hoá tốt không, và
+    chọn checkpoint tốt nhất (không nhất thiết là epoch cuối cùng).
 
-    Lưu ý: Pepper chỉ có 2 lớp (Bacterial_spot, healthy), nên không thể
-    chạy 5-way như lúc đánh giá cuối trên Durian (6 lớp). Ở đây dùng
-    2-way — vẫn đủ để theo dõi xu hướng qua các epoch, dù không cùng
-    cấu hình với kết quả benchmark cuối cùng."""
-    val_n_way = min(N_WAY, len(validation_classes))
-    if val_n_way < 2:
-        print("  -> Bỏ qua validation: không đủ lớp.")
-        return None
-
+    Lưu ý: validation_classes (Pepper) chỉ có 2 lớp, ít hơn N_WAY=5, nên
+    dùng effective_n_way() để tự động giảm xuống 2-way khi validate —
+    không ảnh hưởng đến đánh giá 5-way chính thức trên novel classes
+    (Durian) ở evaluate(). Có thể truyền sẵn val_n_way để tránh tính lại
+    (và in cảnh báo lặp lại) nếu nơi gọi đã tính trước."""
+    if val_n_way is None:
+        val_n_way = effective_n_way(validation_classes, desired_n_way=N_WAY,
+                                     pool_name="validation_classes (Pepper)")
     predict_fn = make_predict_fn(model, val_n_way)
     result = evaluate_episodes(
         predict_fn, class_to_images, validation_classes,
@@ -188,8 +189,11 @@ def train():
         is_last_epoch = (epoch + 1) == N_EPOCHS
         if (epoch + 1) % VAL_EVERY_N_EPOCHS == 0 or is_last_epoch:
             model.eval()
-            val_acc = quick_validate(model, class_to_images, validation_classes)
-            print(f"  -> Validation ({N_WAY}-way {K_SHOT}-shot, "
+            val_n_way_log = effective_n_way(validation_classes, desired_n_way=N_WAY,
+                                             pool_name="validation_classes (Pepper)")
+            val_acc = quick_validate(model, class_to_images, validation_classes,
+                                      val_n_way=val_n_way_log)
+            print(f"  -> Validation ({val_n_way_log}-way {K_SHOT}-shot, "
                   f"{N_VAL_EPISODES} episode): acc = {val_acc:.4f}")
 
             if val_acc > best_val_acc:
