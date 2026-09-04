@@ -1,0 +1,11 @@
+{
+  "n_episodes": 600,
+  "n_way": 5,
+  "k_shot": 1,
+  "q_query": 15,
+  "mean_accuracy": 0.3137777790303032,
+  "ci95": 0.005819083086168282,
+  "mean_inference_time_sec": 0.013351128896077475,
+  "method": "ProtoNet",
+  "train_time_sec": 1473.2517488002777
+}

@@ -1,0 +1,12 @@
+{
+  "n_episodes": 600,
+  "n_way": 5,
+  "k_shot": 10,
+  "q_query": 15,
+  "mean_accuracy": 0.5361111118396124,
+  "ci95": 0.005558575945667729,
+  "mean_inference_time_sec": 0.03784615238507589,
+  "method": "Fine-tuning (MobileNetV2)",
+  "ft_steps": 20,
+  "ft_lr": 0.001
+}

@@ -1,0 +1,52 @@
+{
+  "candidates": [
+    {
+      "ft_steps": 20,
+      "ft_lr": 0.001,
+      "val_accuracy": 0.8183333283662796
+    },
+    {
+      "ft_steps": 20,
+      "ft_lr": 0.005,
+      "val_accuracy": 0.7879999977350235
+    },
+    {
+      "ft_steps": 20,
+      "ft_lr": 0.01,
+      "val_accuracy": 0.7620000004768371
+    },
+    {
+      "ft_steps": 50,
+      "ft_lr": 0.001,
+      "val_accuracy": 0.817333328127861
+    },
+    {
+      "ft_steps": 50,
+      "ft_lr": 0.005,
+      "val_accuracy": 0.8049999958276749
+    },
+    {
+      "ft_steps": 50,
+      "ft_lr": 0.01,
+      "val_accuracy": 0.7839999961853027
+    },
+    {
+      "ft_steps": 100,
+      "ft_lr": 0.001,
+      "val_accuracy": 0.8166666632890701
+    },
+    {
+      "ft_steps": 100,
+      "ft_lr": 0.005,
+      "val_accuracy": 0.8156666624546051
+    },
+    {
+      "ft_steps": 100,
+      "ft_lr": 0.01,
+      "val_accuracy": 0.7936666625738144
+    }
+  ],
+  "best_ft_steps": 20,
+  "best_ft_lr": 0.001,
+  "best_val_accuracy": 0.8183333283662796
+}
