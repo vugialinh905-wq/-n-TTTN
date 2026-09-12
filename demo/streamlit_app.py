@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
 """
-streamlit_app.py (v3 — giao diện nâng cấp)
-Demo Streamlit: so sánh ProtoNet vs Fine-tuning (live) trên ảnh lá sầu
-riêng, kèm cơ chế từ chối ảnh ngoài phân phối (OOD).
+streamlit_app.py
+
+Demo Streamlit: so sánh trực tiếp Prototypical Network (few-shot)
+và Fine-tuning (live) trên cùng một ảnh lá sầu riêng.
 
 CHẠY Ở MÁY LOCAL. Chuẩn bị thư mục demo/ với cấu trúc:
     demo/
@@ -16,18 +16,15 @@ CHẠY Ở MÁY LOCAL. Chuẩn bị thư mục demo/ với cấu trúc:
 
 Cài thư viện (1 lần):
     pip install streamlit torch torchvision pillow pandas
+
 Chạy:
     streamlit run streamlit_app.py
 
-GHI CHÚ QUAN TRỌNG VỀ "KHÔNG NHẬN DIỆN ĐƯỢC":
-Mô hình chỉ được huấn luyện trên 6 lớp bệnh cố định (xem CLASS_INFO bên
-dưới). Bất kỳ loại tổn thương nào KHÔNG nằm trong 6 lớp đó — ví dụ lá bị
-sâu/côn trùng ăn, cháy nắng, thiếu dinh dưỡng, v.v. — đều là dữ liệu
-ngoài phân phối (out-of-distribution). ProtoNet sẽ (và NÊN) từ chối các
-ảnh này thay vì đoán bừa vào 1 trong 6 lớp đã biết. Đây KHÔNG phải lỗi,
-mà là mục đích của cơ chế ngưỡng confidence trong calibrate_threshold.py.
-Muốn nhận diện thêm loại tổn thương mới, cần bổ sung lớp đó vào dataset
-và huấn luyện lại — xem tab "Giới thiệu & Giới hạn" trong app.
+LƯU Ý:
+Ứng dụng được xây dựng để so sánh hai phương pháp trên cùng tập 6 lớp
+đang đánh giá trong đề tài. Mỗi nhánh luôn trả về lớp có xác suất cao nhất
+trong 6 lớp này; ứng dụng không thực hiện cơ chế phát hiện hoặc từ chối
+ảnh ngoài phân phối (OOD).
 """
 
 import io
@@ -53,8 +50,6 @@ IMG_SIZE = 84  # PHẢI khớp IMG_SIZE trong data_prep.py
 
 FT_STEPS = 20
 FT_LR = 1e-3
-DEFAULT_CONFIDENCE_THRESHOLD = 0.25
-
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -132,15 +127,10 @@ def load_protonet():
         [proto_data['protonet_prototypes'][c] for c in novel_classes]
     )
 
-    threshold_data = proto_data.get('confidence_threshold', {})
-    confidence_threshold = threshold_data.get('protonet', DEFAULT_CONFIDENCE_THRESHOLD)
-    calibrated = 'protonet' in threshold_data
     return {
         'model': model,
         'novel_classes': novel_classes,
         'prototypes': prototypes,
-        'confidence_threshold': confidence_threshold,
-        'calibrated': calibrated,
     }
 
 
@@ -190,11 +180,11 @@ def predict_protonet(protonet, image: Image.Image):
         dists = torch.pow(emb - protonet['prototypes'], 2).sum(dim=1)
         probs = F.softmax(-dists, dim=0)
 
-    ranked = sorted(zip(protonet['novel_classes'], probs.tolist()), key=lambda t: -t[1])
-    top1_prob = ranked[0][1]
-    top2_prob = ranked[1][1] if len(ranked) > 1 else 0.0
-    margin = top1_prob - top2_prob
-    return ranked, margin
+    ranked = sorted(
+        zip(protonet['novel_classes'], probs.tolist()),
+        key=lambda t: -t[1]
+    )
+    return ranked
 
 
 # ============================================================
@@ -263,7 +253,6 @@ st.markdown("""
     border: 1px solid rgba(0,0,0,0.08);
 }
 .result-card.ok { background: #F1F8E9; border-left: 6px solid #4CAF50; }
-.result-card.reject { background: #FFF3E0; border-left: 6px solid #FB8C00; }
 .result-card.warn { background: #E3F2FD; border-left: 6px solid #1E88E5; }
 .class-row { display: flex; justify-content: space-between; font-size: 14px; margin: 4px 0; }
 .badge {
@@ -292,34 +281,19 @@ if 'history' not in st.session_state:
 with st.sidebar:
     st.header("⚙️ Thông tin mô hình")
     if protonet is not None:
-        st.metric("Số lớp bệnh đã huấn luyện", len(protonet['novel_classes']))
-        st.metric("Ngưỡng từ chối (ProtoNet)", f"{protonet['confidence_threshold']:.3f}",
-                   help="Ảnh có margin thấp hơn ngưỡng này sẽ bị từ chối vì được xem là ngoài phân phối (OOD).")
-        if not protonet['calibrated']:
-            st.warning(f"prototypes.json chưa hiệu chỉnh ngưỡng — đang dùng mặc định {DEFAULT_CONFIDENCE_THRESHOLD}.")
+        st.metric("Số lớp nhận diện trong demo", len(protonet['novel_classes']))
         st.divider()
-        st.subheader("6 lớp mô hình nhận biết")
+        st.subheader("6 lớp được so sánh")
         for c in protonet['novel_classes']:
             info = CLASS_INFO.get(c, {'emoji': '•', 'label': c, 'color': '#999'})
             st.markdown(f"{info['emoji']} **{c}** — {info['label']}")
         st.divider()
         st.info(
-            "⚠️ Mô hình **chỉ** nhận biết 6 lớp trên. Các loại tổn thương khác "
-            "(sâu/côn trùng ăn lá, cháy nắng, thiếu dinh dưỡng...) chưa được "
-            "huấn luyện — ảnh thuộc các loại này sẽ bị từ chối (đúng như "
-            "thiết kế), không phải lỗi hệ thống. Xem tab **Giới thiệu & Giới hạn**."
+            "Ứng dụng dùng cùng 6 lớp và cùng tập support để so sánh trực tiếp "
+            "Prototypical Network với Fine-tuning trên một ảnh đầu vào."
         )
     else:
         st.error("Thiếu file mô hình / prototypes.json.")
-
-    with st.expander("🔧 Tùy chỉnh nâng cao"):
-        override_threshold = st.checkbox("Tự chỉnh ngưỡng từ chối ProtoNet", value=False)
-        custom_threshold = None
-        if override_threshold and protonet is not None:
-            custom_threshold = st.slider(
-                "Ngưỡng margin", 0.0, 1.0,
-                float(protonet['confidence_threshold']), 0.01
-            )
 
 # ---------------- Tabs ----------------
 tab_predict, tab_gallery, tab_history, tab_about = st.tabs(
@@ -360,39 +334,27 @@ with tab_predict:
             with img_col:
                 st.image(image, caption=source_label, use_container_width=True)
 
-            threshold = (
-                custom_threshold if (override_threshold and custom_threshold is not None)
-                else protonet['confidence_threshold']
-            )
-
             col1, col2 = st.columns(2)
 
             # --- ProtoNet ---
             with col1:
                 st.subheader("Prototypical Network")
-                ranked_pn, margin = predict_protonet(protonet, image)
+                ranked_pn = predict_protonet(protonet, image)
                 top_class, top_prob = ranked_pn[0]
-                rejected = margin < threshold
 
-                if rejected:
-                    st.markdown(f"""
-                    <div class="result-card reject">
-                    <b>⚠️ Không nhận diện được</b><span class="badge" style="background:#FB8C00;">OOD / từ chối</span>
-                    <p>Ảnh không khớp đủ tốt với bất kỳ lớp nào trong 6 lớp đã huấn luyện.
-                    Có thể: (1) không phải lá sầu riêng, (2) là loại tổn thương chưa
-                    được học (vd. sâu ăn lá), hoặc (3) góc chụp/ánh sáng khác biệt lớn.</p>
-                    <p style="font-size:13px; opacity:0.8;">margin = {margin:.3f} &nbsp;|&nbsp; ngưỡng = {threshold:.3f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    info = CLASS_INFO.get(top_class, {'emoji': '', 'label': top_class, 'color': '#4CAF50'})
-                    st.markdown(f"""
-                    <div class="result-card ok">
-                    <b>{info['emoji']} {top_class}</b> — {info['label']}
-                    <span class="badge" style="background:{info['color']};">{top_prob*100:.1f}%</span>
-                    <p style="font-size:13px; opacity:0.8;">margin = {margin:.3f} &nbsp;|&nbsp; ngưỡng = {threshold:.3f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                info = CLASS_INFO.get(
+                    top_class,
+                    {'emoji': '', 'label': top_class, 'color': '#4CAF50'}
+                )
+                st.markdown(f"""
+                <div class="result-card ok">
+                <b>{info['emoji']} {top_class}</b> — {info['label']}
+                <span class="badge" style="background:{info['color']};">{top_prob*100:.1f}%</span>
+                <p style="font-size:13px; opacity:0.8;">
+                Dự đoán có xác suất cao nhất trong 6 lớp của bài toán.
+                </p>
+                </div>
+                """, unsafe_allow_html=True)
 
                 df_pn = pd.DataFrame(
                     {"Xác suất": [p for _, p in ranked_pn]},
@@ -417,9 +379,9 @@ with tab_predict:
                 <div class="result-card warn">
                 <b>{info_ft['emoji']} {top_class_ft}</b> — {info_ft['label']}
                 <span class="badge" style="background:{info_ft['color']};">{top_prob_ft*100:.1f}%</span>
-                <p style="font-size:13px; opacity:0.85;">⚠️ Nhánh này CHƯA có ngưỡng từ chối đã hiệu chỉnh
-                đáng tin cậy — có thể tự tin cao dù ảnh không phải lá sầu riêng.
-                Kết quả chỉ mang tính tham khảo.</p>
+                <p style="font-size:13px; opacity:0.85;">
+                Kết quả dùng để đối chiếu trực tiếp với nhánh Prototypical Network.
+                </p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -436,9 +398,8 @@ with tab_predict:
             st.session_state.history.append({
                 "Thời gian": datetime.now().strftime("%H:%M:%S"),
                 "Ảnh": source_label,
-                "ProtoNet": "Từ chối (OOD)" if rejected else top_class,
-                "ProtoNet %": None if rejected else round(top_prob * 100, 1),
-                "Margin": round(margin, 3),
+                "ProtoNet": top_class,
+                "ProtoNet %": round(top_prob * 100, 1),
                 "Fine-tune": top_class_ft,
                 "Fine-tune %": round(top_prob_ft * 100, 1),
             })
@@ -448,11 +409,10 @@ with tab_predict:
                 f"Thời gian: {datetime.now().isoformat(timespec='seconds')}",
                 "",
                 "== Prototypical Network ==",
-                ("Từ chối (OOD)" if rejected else f"Dự đoán: {top_class} ({top_prob*100:.1f}%)"),
-                f"margin={margin:.3f}, ngưỡng={threshold:.3f}",
+                f"Dự đoán: {top_class} ({top_prob*100:.1f}%)",
                 "",
                 "== Fine-tuning (live) ==",
-                f"Dự đoán: {top_class_ft} ({top_prob_ft*100:.1f}%) — chưa hiệu chỉnh ngưỡng",
+                f"Dự đoán: {top_class_ft} ({top_prob_ft*100:.1f}%)",
             ]
             st.download_button(
                 "⬇️ Tải báo cáo kết quả (.txt)",
@@ -495,42 +455,31 @@ with tab_history:
 with tab_about:
     st.subheader("Về ứng dụng này")
     st.markdown("""
-Ứng dụng so sánh 2 cách tiếp cận few-shot learning trên bài toán nhận diện
-bệnh lá sầu riêng, dùng cùng 1 bộ ảnh support và cùng 1 ảnh test:
+Ứng dụng minh họa và so sánh trực tiếp hai cách tiếp cận trên cùng bài toán
+nhận diện 6 lớp lá/bệnh lá sầu riêng, sử dụng cùng ảnh đầu vào:
 
-- **Prototypical Network** — không train lại khi gặp lớp mới, chỉ so
-  khoảng cách embedding tới prototype (trung bình embedding) mỗi lớp,
-  đã tính sẵn. Nhanh, có ngưỡng từ chối đã hiệu chỉnh khoa học.
-- **Fine-tuning (live)** — huấn luyện lại 1 lớp Linear mới mỗi lần bấm,
-  trên đúng ảnh support thật. Chậm hơn, và **chưa** có ngưỡng từ chối
-  đáng tin cậy (xem `finetune_note` trong `prototypes.json`).
+- **Prototypical Network** — không huấn luyện lại khi dự đoán. Mô hình so sánh
+  embedding của ảnh test với prototype đại diện cho từng lớp.
+- **Fine-tuning (live)** — sử dụng ảnh support để huấn luyện một lớp Linear
+  mới trong lúc chạy demo, sau đó dự đoán ảnh test.
+
+Hai nhánh được đặt cạnh nhau để quan sát sự khác biệt về kết quả dự đoán
+trên cùng một ảnh.
     """)
 
-    st.subheader("Vì sao ảnh lá bị sâu ăn (hoặc tổn thương lạ khác) ra 'không nhận diện được'?")
+    st.subheader("Phạm vi của demo")
     st.markdown("""
-Mô hình được huấn luyện **chỉ trên 6 lớp cố định**. Bất kỳ kiểu tổn
-thương nào không nằm trong 6 lớp đó — kể cả rất rõ ràng bằng mắt thường
-như lá bị sâu/côn trùng ăn — đều là dữ liệu **ngoài phân phối
-(out-of-distribution)** với mô hình. Nhánh ProtoNet phát hiện điều này
-qua chỉ số *margin* (chênh lệch xác suất giữa lớp #1 và #2): nếu ảnh
-không thực sự giống lớp nào, margin sẽ thấp và bị từ chối — đây là hành
-vi **đúng, có chủ đích**, không phải lỗi phần mềm.
+Demo tập trung vào việc so sánh **Prototypical Network** và **Fine-tuning**
+trên 6 lớp đã được chuẩn bị trong tập đánh giá. Ứng dụng luôn hiển thị lớp
+có xác suất cao nhất trong 6 lớp này và **không tích hợp cơ chế phát hiện
+hoặc từ chối ảnh ngoài phân phối (OOD)**.
 
-**Muốn mô hình nhận biết thêm loại tổn thương mới (vd. sâu ăn lá):**
-1. Thu thập ảnh lá sầu riêng bị sâu ăn, đủ số lượng.
-2. Thêm thành 1 lớp mới trong `data_prep.py` / dataset gốc.
-3. Chạy lại `build_prototypes.py` để có prototype cho lớp mới.
-4. Chạy lại `calibrate_threshold.py` để hiệu chỉnh ngưỡng từ chối cho
-   đúng với tập lớp mới.
-
-Không có bước nào trong 4 bước trên có thể thay thế bằng việc chỉnh giao
-diện — đây là công việc dữ liệu/huấn luyện, không phải UI.
+Các kết quả cần được diễn giải trong phạm vi dữ liệu và 6 lớp của bài toán.
     """)
 
     if protonet is not None:
-        st.subheader("Chi tiết ngưỡng hiện tại")
+        st.subheader("Thông tin mô hình")
         st.json({
-            "protonet_threshold": protonet['confidence_threshold'],
-            "protonet_calibrated": protonet['calibrated'],
             "n_classes": len(protonet['novel_classes']),
+            "classes": protonet['novel_classes'],
         })
