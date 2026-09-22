@@ -1,0 +1,85 @@
+{
+  "novel_classes": [
+    "Leaf_Algal",
+    "Leaf_Blight",
+    "Leaf_Colletotrichum",
+    "Leaf_Healthy",
+    "Leaf_Phomopsis",
+    "Leaf_Rhizoctonia"
+  ],
+  "n_support_per_class": 10,
+  "classes": {
+    "Leaf_Algal": [
+      "Leaf_Algal/00.jpg",
+      "Leaf_Algal/01.jpg",
+      "Leaf_Algal/02.jpg",
+      "Leaf_Algal/03.jpg",
+      "Leaf_Algal/04.jpg",
+      "Leaf_Algal/05.jpg",
+      "Leaf_Algal/06.jpg",
+      "Leaf_Algal/07.jpg",
+      "Leaf_Algal/08.jpg",
+      "Leaf_Algal/09.jpg"
+    ],
+    "Leaf_Blight": [
+      "Leaf_Blight/00.jpg",
+      "Leaf_Blight/01.jpg",
+      "Leaf_Blight/02.jpg",
+      "Leaf_Blight/03.jpg",
+      "Leaf_Blight/04.jpg",
+      "Leaf_Blight/05.jpg",
+      "Leaf_Blight/06.jpg",
+      "Leaf_Blight/07.jpg",
+      "Leaf_Blight/08.jpg",
+      "Leaf_Blight/09.jpg"
+    ],
+    "Leaf_Colletotrichum": [
+      "Leaf_Colletotrichum/00.jpg",
+      "Leaf_Colletotrichum/01.jpg",
+      "Leaf_Colletotrichum/02.jpg",
+      "Leaf_Colletotrichum/03.jpg",
+      "Leaf_Colletotrichum/04.jpg",
+      "Leaf_Colletotrichum/05.jpg",
+      "Leaf_Colletotrichum/06.jpg",
+      "Leaf_Colletotrichum/07.jpg",
+      "Leaf_Colletotrichum/08.jpg",
+      "Leaf_Colletotrichum/09.jpg"
+    ],
+    "Leaf_Healthy": [
+      "Leaf_Healthy/00.jpg",
+      "Leaf_Healthy/01.jpg",
+      "Leaf_Healthy/02.jpg",
+      "Leaf_Healthy/03.jpg",
+      "Leaf_Healthy/04.jpg",
+      "Leaf_Healthy/05.jpg",
+      "Leaf_Healthy/06.jpg",
+      "Leaf_Healthy/07.jpg",
+      "Leaf_Healthy/08.jpg",
+      "Leaf_Healthy/09.jpg"
+    ],
+    "Leaf_Phomopsis": [
+      "Leaf_Phomopsis/00.jpg",
+      "Leaf_Phomopsis/01.jpg",
+      "Leaf_Phomopsis/02.jpg",
+      "Leaf_Phomopsis/03.jpg",
+      "Leaf_Phomopsis/04.jpg",
+      "Leaf_Phomopsis/05.jpg",
+      "Leaf_Phomopsis/06.jpg",
+      "Leaf_Phomopsis/07.jpg",
+      "Leaf_Phomopsis/08.jpg",
+      "Leaf_Phomopsis/09.jpg"
+    ],
+    "Leaf_Rhizoctonia": [
+      "Leaf_Rhizoctonia/00.jpg",
+      "Leaf_Rhizoctonia/01.jpg",
+      "Leaf_Rhizoctonia/02.jpg",
+      "Leaf_Rhizoctonia/03.jpg",
+      "Leaf_Rhizoctonia/04.jpg",
+      "Leaf_Rhizoctonia/05.jpg",
+      "Leaf_Rhizoctonia/06.jpg",
+      "Leaf_Rhizoctonia/07.jpg",
+      "Leaf_Rhizoctonia/08.jpg",
+      "Leaf_Rhizoctonia/09.jpg"
+    ]
+  }
+}
