@@ -1,15 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 compare_results.py
-Giai đoạn 4 — Gộp kết quả ProtoNet (Người 1) và Fine-tuning baseline
-(Người 2) thành 1 bảng so sánh.
-
-KHÔNG cần train lại, KHÔNG cần load model — chỉ đọc lại các file JSON
-mà evaluate() ở mỗi file train_*.py đã tự lưu vào Drive từ Giai đoạn 3.
-
-Yêu cầu trước khi chạy: cả 2 người đã chạy evaluate() xong (Người 1 qua
-train_protonet.py, Người 2 qua train_baseline_finetune.py BẢN ĐÃ TUNE),
-kết quả đã nằm sẵn trong RESULTS_DIR trên Drive.
 """
 
 import os
