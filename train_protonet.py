@@ -1,14 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 train_protonet.py
-Giai đoạn 3 — Người 1: Prototypical Network
-
-Yêu cầu chạy trước file này (đúng thứ tự):
-1. data_prep.py  — đã tạo xong class_to_images.json trong Drive
-2. episode_utils.py — nằm cùng thư mục, import được
-
-Cách chạy trong Colab: copy nội dung file này vào 1 cell (hoặc nhiều cell
-theo từng phần đánh số 1-4), chạy train() rồi evaluate(model).
 """
 
 import os
@@ -31,14 +23,11 @@ N_EPOCHS = 60
 LR = 1e-3
 EVAL_EPISODES = 600  # chuẩn phổ biến trong paper few-shot learning
 
-# --- Cấu hình cho phần validation (còn thiếu ở bản trước) ---
+# Cấu hình cho phần validation
 VAL_EVERY_N_EPOCHS = 5    # cứ mỗi 5 epoch thì đánh giá 1 lần trên validation classes
-N_VAL_EPISODES = 100      # ít hơn 600 vì chỉ cần theo dõi xu hướng, không phải kết quả cuối cùng
+N_VAL_EPISODES = 100      
 
-
-# ============================================================
-# 1. BACKBONE — Conv-4, kiến trúc chuẩn trong few-shot learning
-# ============================================================
+# 1. BACKBONE — Conv-4
 
 def conv_block(in_channels, out_channels):
     """1 khối: Conv2D 3x3 -> BatchNorm -> ReLU -> MaxPool2x2"""
@@ -51,8 +40,7 @@ def conv_block(in_channels, out_channels):
 
 
 class Conv4Backbone(nn.Module):
-    """Backbone chuẩn Conv-4: 4 khối Conv, mỗi khối 64 filter.
-    Dùng AdaptiveAvgPool để luôn ra vector embedding cố định 64 chiều,
+    """Backbone chuẩn Conv-4: embedding cố định 64 chiều,
     không phụ thuộc chính xác kích thước ảnh đầu vào."""
 
     def __init__(self, embedding_dim=64):
@@ -71,26 +59,23 @@ class Conv4Backbone(nn.Module):
         return x.view(x.size(0), -1)  # (B, 64)
 
 
-# ============================================================
 # 2. PROTOTYPICAL NETWORK — tính prototype + khoảng cách Euclidean
-# ============================================================
 
 def compute_prototypes(support_embeddings, support_labels, n_way):
     """Prototype mỗi lớp = trung bình embedding các ảnh support của lớp đó."""
     prototypes = []
     for c in range(n_way):
-        mask = support_labels == c
-        prototypes.append(support_embeddings[mask].mean(dim=0))
+        mask = support_labels == c # Chọn tất cả ảnh thuộc lớp c
+        prototypes.append(support_embeddings[mask].mean(dim=0)) # Lấy trung bình embedding để tạo prototype đại diện cho lớp c
     return torch.stack(prototypes)  # (n_way, embedding_dim)
 
 
 def euclidean_distance(a, b):
-    """Khoảng cách Euclidean giữa mỗi hàng của a và mỗi hàng của b.
-    a: (N, D), b: (M, D) -> trả về (N, M)"""
+    """Tính khoảng cách giữa từng ảnh query và từng prototype"""
     n, m = a.size(0), b.size(0)
-    a = a.unsqueeze(1).expand(n, m, -1)
-    b = b.unsqueeze(0).expand(n, m, -1)
-    return torch.pow(a - b, 2).sum(dim=2)
+    a = a.unsqueeze(1).expand(n, m, -1) # Nhân bản query embeddings
+    b = b.unsqueeze(0).expand(n, m, -1) # Nhân bản prototypes
+    return torch.pow(a - b, 2).sum(dim=2) # Công thức khoảng cách Euclidean bình phương
 
 
 def protonet_forward(model, support_x, support_y, query_x, n_way):
@@ -99,28 +84,17 @@ def protonet_forward(model, support_x, support_y, query_x, n_way):
     support_emb = model(support_x)
     query_emb = model(query_x)
 
-    prototypes = compute_prototypes(support_emb, support_y, n_way)
-    dists = euclidean_distance(query_emb, prototypes)  # (n_query, n_way)
+    prototypes = compute_prototypes(support_emb, support_y, n_way) # Tính prototype đại diện cho từng lớp
+    dists = euclidean_distance(query_emb, prototypes)  # (n_query, n_way) Khoảng cách từ mỗi query đến từng prototype
 
-    log_p_y = F.log_softmax(-dists, dim=1)
+    log_p_y = F.log_softmax(-dists, dim=1) # khoảng cách càng nhỏ xác xuất càng lớn
     return log_p_y
 
-
-# ============================================================
-# 3. VÒNG LẶP HUẤN LUYỆN (episodic training) — chỉ dùng base_classes
-#    + đánh giá định kỳ trên validation_classes để chọn checkpoint tốt nhất
-# ============================================================
+# 3. VÒNG LẶP HUẤN LUYỆN, đánh giá định kỳ trên validation
 
 def quick_validate(model, class_to_images, validation_classes, n_episodes=N_VAL_EPISODES, val_n_way=None):
-    """Đánh giá nhanh trên validation classes (Pepper) — KHÔNG dùng để
-    train, chỉ để theo dõi mô hình có đang tổng quát hoá tốt không, và
-    chọn checkpoint tốt nhất (không nhất thiết là epoch cuối cùng).
-
-    Lưu ý: validation_classes (Pepper) chỉ có 2 lớp, ít hơn N_WAY=5, nên
-    dùng effective_n_way() để tự động giảm xuống 2-way khi validate —
-    không ảnh hưởng đến đánh giá 5-way chính thức trên novel classes
-    (Durian) ở evaluate(). Có thể truyền sẵn val_n_way để tránh tính lại
-    (và in cảnh báo lặp lại) nếu nơi gọi đã tính trước."""
+    """Đánh giá nhanh trên validation classes (Pepper) — chọn checkpoint tốt nhất (không nhất thiết là epoch cuối cùng).
+    """
     if val_n_way is None:
         val_n_way = effective_n_way(validation_classes, desired_n_way=N_WAY,
                                      pool_name="validation_classes (Pepper)")
@@ -172,13 +146,13 @@ def train():
             optimizer.step()
 
             with torch.no_grad():
-                pred = log_p_y.argmax(dim=1)
-                acc = (pred == query_y).float().mean().item()
+                pred = log_p_y.argmax(dim=1) # Chọn lớp có xác suất cao nhất
+                acc = (pred == query_y).float().mean().item() # so sánh dự đoán với nhãn thật
 
             epoch_loss += loss.item()
             epoch_acc += acc
 
-        scheduler.step()
+        scheduler.step() # Cấu hình: step_size = 20, gamma = 0.5 nghĩa là: cứ sau 20 epoch, LR giảm còn một nửa
         epoch_loss /= N_TRAIN_EPISODES_PER_EPOCH
         epoch_acc /= N_TRAIN_EPISODES_PER_EPOCH
         print(f"Epoch {epoch + 1}/{N_EPOCHS} — loss: {epoch_loss:.4f} — "
@@ -195,7 +169,7 @@ def train():
                                       val_n_way=val_n_way_log)
             print(f"  -> Validation ({val_n_way_log}-way {K_SHOT}-shot, "
                   f"{N_VAL_EPISODES} episode): acc = {val_acc:.4f}")
-
+    # Lưu checkpoint tốt nhất:
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
                 best_epoch = epoch + 1
@@ -212,9 +186,7 @@ def train():
 
     train_time_sec = time.time() - train_start_time
 
-    # Luôn lưu thêm model ở epoch cuối cùng (để so sánh với "best" nếu cần
-    # phân tích thêm), nhưng model dùng để đánh giá cuối cùng trên Durian
-    # sẽ là bản "best" theo validation, không phải epoch cuối.
+    # Luôn lưu thêm model ở epoch cuối cùng (để so sánh với "best" nếu cần phân tích thêm), nhưng model dùng để đánh giá cuối cùng trên Durian sẽ là bản "best" theo validation, không phải epoch cuối.
     torch.save(model.state_dict(), final_ckpt_path)
 
     training_summary = {
@@ -241,10 +213,7 @@ def train():
     best_model.load_state_dict(torch.load(best_ckpt_path, map_location=DEVICE))
     return best_model
 
-
-# ============================================================
-# 4. ĐÁNH GIÁ TRÊN NOVEL CLASSES (Durian) — dùng hạ tầng chung
-# ============================================================
+# 4. ĐÁNH GIÁ TRÊN NOVEL CLASSES (Durian) 
 
 def make_predict_fn(model, n_way):
     """Bọc protonet_forward thành hàm predict_fn đúng chữ ký mà
@@ -263,7 +232,6 @@ def evaluate(model):
     novel_classes = meta['novel_classes']
 
     # Đọc lại thời gian train đã lưu ở bước train(), để đính kèm vào mỗi
-    # kết quả benchmark — Giai đoạn 5 cần so sánh thời gian giữa 2 phương pháp
     train_time_sec = None
     summary_path = os.path.join(RESULTS_DIR, 'protonet_training_summary.json')
     if os.path.exists(summary_path):
