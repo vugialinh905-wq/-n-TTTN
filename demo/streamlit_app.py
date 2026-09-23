@@ -4,27 +4,11 @@ streamlit_app.py
 Demo Streamlit: so sánh trực tiếp Prototypical Network (few-shot)
 và Fine-tuning (live) trên cùng một ảnh lá sầu riêng.
 
-CHẠY Ở MÁY LOCAL. Chuẩn bị thư mục demo/ với cấu trúc:
-    demo/
-      streamlit_app.py          (file này)
-      protonet_conv4_best.pt
-      prototypes.json
-      support_set/
-        manifest.json
-        Leaf_Algal/00.jpg, 01.jpg, ...
-        ... (đủ 6 lớp)
-
 Cài thư viện (1 lần):
     pip install streamlit torch torchvision pillow pandas
 
 Chạy:
     streamlit run streamlit_app.py
-
-LƯU Ý:
-Ứng dụng được xây dựng để so sánh hai phương pháp trên cùng tập 6 lớp
-đang đánh giá trong đề tài. Mỗi nhánh luôn trả về lớp có xác suất cao nhất
-trong 6 lớp này; ứng dụng không thực hiện cơ chế phát hiện hoặc từ chối
-ảnh ngoài phân phối (OOD).
 """
 
 import io
@@ -59,8 +43,7 @@ eval_transform = T.Compose([
     T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
 ])
 
-# Thông tin hiển thị cho từng lớp bệnh — chỉ phục vụ UI, không ảnh hưởng
-# logic mô hình. Sửa nhãn tiếng Việt tại đây nếu cần cho đúng thuật ngữ.
+# Thông tin hiển thị cho từng lớp bệnh 
 CLASS_INFO = {
     'Leaf_Algal':          {'label': 'Đốm rong / tảo lá',        'emoji': '🟢', 'color': '#8BC34A'},
     'Leaf_Blight':         {'label': 'Cháy lá (Blight)',          'emoji': '🟤', 'color': '#8D6E63'},
@@ -78,9 +61,7 @@ def class_display(cls: str) -> str:
     return f"{info['emoji']} {cls} — {info['label']}"
 
 
-# ============================================================
 # 1. KIẾN TRÚC — PHẢI giống hệt lúc train
-# ============================================================
 
 def conv_block(in_channels, out_channels):
     return nn.Sequential(
@@ -105,10 +86,7 @@ class Conv4Backbone(nn.Module):
         x = self.pool(x)
         return x.view(x.size(0), -1)
 
-
-# ============================================================
 # 2. NẠP TÀI NGUYÊN
-# ============================================================
 
 @st.cache_resource
 def load_protonet():
@@ -169,16 +147,14 @@ def load_support_set():
     }
 
 
-# ============================================================
 # 3. DỰ ĐOÁN — ProtoNet
-# ============================================================
 
 def predict_protonet(protonet, image: Image.Image):
     x = eval_transform(image.convert('RGB')).unsqueeze(0)
     with torch.no_grad():
         emb = protonet['model'](x)
-        dists = torch.pow(emb - protonet['prototypes'], 2).sum(dim=1)
-        probs = F.softmax(-dists, dim=0)
+        dists = torch.pow(emb - protonet['prototypes'], 2).sum(dim=1) # Tính khoảng cách giữa ảnh đầu vào và prototype của từng lớp
+        probs = F.softmax(-dists, dim=0) # Chuyển khoảng cách thành xác suất
 
     ranked = sorted(
         zip(protonet['novel_classes'], probs.tolist()),
@@ -186,10 +162,7 @@ def predict_protonet(protonet, image: Image.Image):
     )
     return ranked
 
-
-# ============================================================
 # 4. DỰ ĐOÁN — Fine-tuning LIVE
-# ============================================================
 
 def run_live_finetune(backbone, support_set, image: Image.Image):
     novel_classes = support_set['novel_classes']
@@ -199,7 +172,7 @@ def run_live_finetune(backbone, support_set, image: Image.Image):
     for label_idx, c in enumerate(novel_classes):
         imgs = support_set['class_images'][c]
         support_x.append(imgs)
-        support_y += [label_idx] * imgs.size(0)
+        support_y += [label_idx] * imgs.size(0) # Tạo nhãn cho toàn bộ ảnh support của lớp hiện tại
     support_x = torch.cat(support_x, dim=0)
     support_y = torch.tensor(support_y)
 
@@ -207,7 +180,7 @@ def run_live_finetune(backbone, support_set, image: Image.Image):
         support_feat = backbone(support_x)
     feat_dim = support_feat.shape[1]
 
-    classifier = nn.Linear(feat_dim, n_way)
+    classifier = nn.Linear(feat_dim, n_way) # Tạo classifier mới cho 6 lớp cần nhận diện
     optimizer = torch.optim.Adam(classifier.parameters(), lr=FT_LR)
     criterion = nn.CrossEntropyLoss()
 
@@ -216,8 +189,8 @@ def run_live_finetune(backbone, support_set, image: Image.Image):
         optimizer.zero_grad()
         logits = classifier(support_feat)
         loss = criterion(logits, support_y)
-        loss.backward()
-        optimizer.step()
+        loss.backward() # Tính gradient để cập nhật trọng số
+        optimizer.step() # cập nhật trọng số
     classifier.eval()
 
     x = eval_transform(image.convert('RGB')).unsqueeze(0)
@@ -226,13 +199,10 @@ def run_live_finetune(backbone, support_set, image: Image.Image):
         logits = classifier(feat)
         probs = F.softmax(logits, dim=1).squeeze(0)
 
-    ranked = sorted(zip(novel_classes, probs.tolist()), key=lambda t: -t[1])
+    ranked = sorted(zip(novel_classes, probs.tolist()), key=lambda t: -t[1]) # Sắp xếp lớp theo xác suất giảm dần
     return ranked
 
-
-# ============================================================
 # 5. GIAO DIỆN
-# ============================================================
 
 st.set_page_config(
     page_title="Durian Leaf AI — Nhận diện bệnh lá sầu riêng",
