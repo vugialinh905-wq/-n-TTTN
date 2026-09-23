@@ -1,23 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 build_prototypes.py
-Giai đoạn 5 — Chuẩn bị "bộ não" cho phía ProtoNet của demo Streamlit.
-
-Vì sao chỉ có ProtoNet ở đây (không có Fine-tuning nữa):
-Bản chất Prototypical Network là KHÔNG train lại khi gặp lớp mới — chỉ
-cần 1 vector prototype (trung bình embedding) cố định mỗi lớp là đủ để so
-khớp ảnh mới. Vì vậy có thể "đóng băng" phần này thành prototypes.json,
-tính 1 lần duy nhất, dùng lại mãi.
-
-Phần Fine-tuning KHÔNG làm theo cách này nữa (xem build_support_set.py):
-đúng bản chất phương pháp, Fine-tuning phải huấn luyện lại lớp Linear mỗi
-lần gặp lớp mới bằng ảnh support thật — nên streamlit_app.py sẽ tự
-fine-tune LIVE bằng ảnh trong support_set/, không nạp trọng số có sẵn.
-
-Yêu cầu chạy trước file này (đúng thứ tự):
-1. data_prep.py     — đã tạo xong class_to_images.json
-2. episode_utils.py — nằm cùng thư mục, import được
-3. train_protonet.py đã chạy xong, có models/protonet_conv4_best.pt
 """
 
 import os
@@ -30,10 +13,7 @@ from data_prep import set_seed, SEED, eval_transform, load_and_preprocess
 from episode_utils import DEVICE, MODELS_DIR, RESULTS_DIR, load_meta
 from train_protonet import Conv4Backbone
 
-# Số ảnh tham chiếu mỗi lớp dùng để tính prototype cho demo — nhiều hơn
-# K_SHOT (1/5/10) dùng khi đánh giá khoa học, để prototype ổn định hơn
-# khi minh họa. Không ảnh hưởng đến accuracy chính thức (vẫn lấy từ
-# results_snapshot/*.json ở Giai đoạn 3-4).
+# Số ảnh tham chiếu mỗi lớp dùng để tính prototype cho demo — nhiều hơn K_SHOT (1/5/10) dùng khi đánh giá khoa học, để prototype ổn định hơn khi minh họa.
 N_REFERENCE_PER_CLASS = 20
 
 PROTONET_CKPT = os.path.join(MODELS_DIR, 'protonet_conv4_best.pt')
@@ -41,31 +21,30 @@ OUT_PATH = os.path.join(RESULTS_DIR, 'prototypes.json')
 
 
 def pick_reference_images(class_to_images, novel_classes, n_per_class, seed=SEED):
-    """Rút cố định (theo seed) n_per_class ảnh mỗi lớp durian — cố định
-    1 lần, để mọi lần chạy demo đều dùng đúng cùng 1 bộ ảnh tham chiếu."""
-    rng = random.Random(seed)
+    """Rút cố định (theo seed) n_per_class ảnh mỗi lớp durian — cố định 1 bộ ảnh tham chiếu."""
+    rng = random.Random(seed) # Tạo bộ random riêng có seed cố định
     reference = {}
     for c in novel_classes:
         paths = class_to_images[c]
-        n = min(n_per_class, len(paths))
+        n = min(n_per_class, len(paths)) # Nếu lớp có ít ảnh hơn yêu cầu thì dùng tất cả ảnh hiện có
         reference[c] = rng.sample(paths, n)
     return reference
 
 
 def build_protonet_prototypes(reference_images, novel_classes):
-    model = Conv4Backbone().to(DEVICE)
+    model = Conv4Backbone().to(DEVICE) # Tạo lại kiến trúc ProtoNet
     model.load_state_dict(torch.load(PROTONET_CKPT, map_location=DEVICE))
     model.eval()
 
     prototypes = {}
-    with torch.no_grad():
+    with torch.no_grad(): # Không tính gradient giúp chạy nhanh và tiết kiệm RAM
         for c in novel_classes:
             imgs = torch.stack([
                 load_and_preprocess(p, transform=eval_transform)
                 for p in reference_images[c]
-            ]).to(DEVICE)
-            emb = model(imgs)                 # (n_ref, 64)
-            prototypes[c] = emb.mean(dim=0).cpu().tolist()
+            ]).to(DEVICE) # Đọc ảnh và biến thành tensor
+            emb = model(imgs)                 # (n_ref, 64) Chuyển ảnh thành embedding
+            prototypes[c] = emb.mean(dim=0).cpu().tolist() # Tính prototype
     return prototypes
 
 
@@ -84,11 +63,11 @@ def main():
     print("Đang tính prototype cho Prototypical Network...")
     protonet_prototypes = build_protonet_prototypes(reference_images, novel_classes)
 
-    output = {
+    output = { 
         'novel_classes': novel_classes,
         'n_reference_per_class': N_REFERENCE_PER_CLASS,
         'protonet_prototypes': protonet_prototypes,
-    }
+    } # Dữ liệu sẽ được lưu thành file JSON gồm: danh sách lớp, số ảnh tham chiếu mỗi lớp, prototype của từng lớp
     with open(OUT_PATH, 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
