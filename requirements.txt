@@ -1,0 +1,11 @@
+# Huấn luyện, đánh giá, phân tích
+torch
+torchvision
+numpy
+pillow
+matplotlib
+scikit-learn
+
+# Ứng dụng minh hoạ (demo/streamlit_app.py)
+streamlit
+pandas

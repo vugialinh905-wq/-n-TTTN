@@ -1,6 +1,24 @@
 # -*- coding: utf-8 -*-
 """
 data_prep.py
+Giai đoạn 2 — Chuẩn bị dữ liệu (dùng chung cho cả nhóm)
+
+Gom danh sách ảnh của 3 tập lớp (base / validation / novel), lọc ảnh hỏng,
+lưu thành class_to_images.json, và khai báo cấu hình + phép tiền xử lý ảnh
+mà mọi file khác trong dự án import lại.
+
+Yêu cầu trước khi chạy:
+- Đã tải PlantVillage và Durian Leaf Dataset vào Google Drive
+  (chỉ 1 lần, không tải lại mỗi lần chạy)
+- Đã thống nhất với nhau: IMG_SIZE, N, K, Q, danh sách lớp base/val/novel
+
+Mặc định các đường dẫn bên dưới là của Google Colab + Drive (nơi nhóm đã
+chạy thực nghiệm). Muốn chạy ở máy khác thì KHÔNG cần sửa code, chỉ cần
+đặt 2 biến môi trường trước khi chạy:
+    DOAN_DATA_DIR   thư mục lưu trữ lâu dài (chứa plantvillage/, durian/,
+                    và là nơi ghi class_to_images.json; models/ và results/
+                    được tạo ngang cấp với thư mục này)
+    DOAN_LOCAL_DIR  thư mục làm việc chứa dữ liệu đã giải nén
 """
 
 import os
@@ -13,25 +31,43 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import torchvision.transforms as T
 
+# ============================================================
+# 0. CẤU HÌNH CHUNG — đây là phần BẮT BUỘC 2 người phải giống nhau
+#    (theo checklist Giai đoạn 0). Sửa 1 chỗ này, không sửa rải rác.
+# ============================================================
+
 SEED = 42
 IMG_SIZE = 84          # 84x84 theo chuẩn phổ biến của few-shot learning
 N_WAY = 5
 K_SHOT = 5
 Q_QUERY = 15
 
-DRIVE_BASE_DIR = '/content/drive/MyDrive/DoAn/data'
+# Vị trí GỐC trong Google Drive (nơi lưu trữ lâu dài, chỉ tải 1 lần duy nhất
+# từ Kaggle/Mendeley, không tải lại nữa).
+DRIVE_BASE_DIR = os.environ.get('DOAN_DATA_DIR', '/content/drive/MyDrive/DoAn/data')
 
+# PlantVillage: chỉ có file ZIP trong Drive (chưa giải nén sẵn).
 PLANTVILLAGE_ZIP = os.path.join(DRIVE_BASE_DIR, 'plantvillage', 'plantvillage-dataset.zip')
 
+# Durian: KHÔNG có file zip — đã được giải nén sẵn thành thư mục ngay
+# trong Drive (xác nhận bằng os.walk), nằm tại:
 DURIAN_DRIVE_DIR = os.path.join(
     DRIVE_BASE_DIR, 'durian',
     'A Durian Leaf Image Dataset of Common Diseases in Vietnam for Agricultural Diagnosis',
     'Durian_Leaf_Diseases'
 )
 
-LOCAL_BASE_DIR = '/content/data'
+# PlantVillage rất nặng (~2000+ MB, hàng chục nghìn ảnh) — đọc trực tiếp
+# qua Drive (FUSE mount) rất chậm và có thể đọc thiếu lớp. Vì vậy mỗi khi
+# mở phiên Colab mới, ta GIẢI NÉN LẠI (không tải lại) ra ổ đĩa local
+# /content để đọc cho nhanh và đủ. /content mất khi đóng Colab, nhưng
+# không sao vì file zip gốc vẫn còn nguyên trong Drive.
+LOCAL_BASE_DIR = os.environ.get('DOAN_LOCAL_DIR', '/content/data')
 PLANTVILLAGE_DIR = os.path.join(LOCAL_BASE_DIR, 'plantvillage dataset', 'color')
 
+# Durian nhẹ hơn nhiều (vài trăm MB) — không cần giải nén (vì không có
+# zip), chỉ cần COPY thư mục đã có sẵn từ Drive sang /content để đọc
+# nhanh hơn, tránh lỗi đọc thiếu file qua FUSE giống PlantVillage.
 DURIAN_DIR = os.path.join(LOCAL_BASE_DIR, 'durian')
 
 
@@ -39,7 +75,8 @@ def extract_datasets_to_local():
     """Đưa PlantVillage + Durian ra ổ local /content để đọc nhanh và đủ.
     - PlantVillage: giải nén từ file zip trong Drive.
     - Durian: copy nguyên thư mục đã giải nén sẵn từ Drive.
-    """
+    CHỈ làm nếu chưa tồn tại — tránh lặp lại tốn thời gian nếu chạy
+    nhiều lần trong cùng 1 phiên Colab."""
     import zipfile
     import shutil
 
@@ -57,24 +94,41 @@ def extract_datasets_to_local():
     else:
         print("Durian đã có sẵn ở local, bỏ qua copy.")
 
-# Nơi lưu kết quả trung gian (danh sách ảnh mỗi lớp) 
+# Nơi lưu kết quả trung gian (danh sách ảnh mỗi lớp) — lưu vào Drive
+# (không phải /content) để giữ lại giữa các phiên Colab khác nhau
 CACHE_PATH = os.path.join(DRIVE_BASE_DIR, 'class_to_images.json')
+
+# Ảnh kiểm tra bằng mắt sau tiền xử lý (xem sanity_check_images)
+SANITY_CHECK_PATH = os.path.join(os.path.dirname(LOCAL_BASE_DIR), 'sanity_check.png')
 
 
 def set_seed(seed=SEED):
-    """Cố định seed để tái lập kết quả """
+    """Cố định seed để tái lập kết quả — bắt buộc phải gọi hàm này
+    ở đầu MỌI notebook trong dự án (chuẩn bị dữ liệu, train, eval)."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-# 1. GẮN DRIVE 
+
+# ============================================================
+# 1. GẮN DRIVE (chỉ cần 1 lần, không lặp lại nhiều lần trong file)
+# ============================================================
+
 def mount_drive():
-    from google.colab import drive
+    """Gắn Google Drive khi chạy trên Colab. Ở máy cá nhân (không có
+    google.colab) thì bỏ qua — khi đó dữ liệu lấy theo DOAN_DATA_DIR."""
+    try:
+        from google.colab import drive
+    except ImportError:
+        print("Không chạy trên Colab, bỏ qua bước gắn Drive.")
+        return
     drive.mount('/content/drive')
 
 
+# ============================================================
 # 2. XÁC ĐỊNH BASE / VALIDATION / NOVEL CLASSES
+# ============================================================
 
 def get_base_and_validation_classes():
     """Base = Cà chua + Khoai tây (train feature extractor)
@@ -94,13 +148,19 @@ def get_novel_classes():
     return sorted(os.listdir(os.path.join(DURIAN_DIR, 'train')))
 
 
+# ============================================================
 # 3. GOM ẢNH MỖI LỚP — dùng 1 hàm chung cho cả PlantVillage và Durian
+#    (thay vì 2 hàm gần giống nhau như bản cũ)
+# ============================================================
 
 VALID_EXT = ('.jpg', '.jpeg', '.png')
 
 
 def build_class_to_images(class_name, dataset='plantvillage'):
     """Trả về danh sách đường dẫn ảnh của 1 lớp.
+    dataset: 'plantvillage' (1 thư mục phẳng mỗi lớp)
+             'durian' (gộp cả train/val/test vì dùng cho few-shot eval,
+                       không dùng train/val/test kiểu classification thường)
     """
     images = []
     if dataset == 'plantvillage':
@@ -120,7 +180,10 @@ def build_class_to_images(class_name, dataset='plantvillage'):
 
 
 def check_no_class_overlap(base_classes, validation_classes, novel_classes):
-    """Kiểm tra chủ động 3 tập lớp không được trùng nhau"""
+    """Kiểm tra chủ động 3 tập lớp không được trùng nhau — đúng yêu cầu
+    checklist Giai đoạn 0. Nếu sau này ai đó sửa nhầm logic lọc lớp
+    (ví dụ đổi tên lớp, thêm lớp mới), lỗi sẽ bị chặn ngay tại đây thay
+    vì âm thầm gây sai lệch kết quả few-shot về sau."""
     base_set = set(base_classes)
     val_set = set(validation_classes)
     novel_set = set(novel_classes)
@@ -164,12 +227,17 @@ def build_all_class_to_images():
     return meta
 
 
-# 3b. LỌC ẢNH HỎNG 
-
+# ============================================================
+# 3b. LỌC ẢNH HỎNG — quét 1 lần để tránh pipeline crash giữa chừng
+#     (ví dụ đang train dở nhiều giờ mà gặp 1 file ảnh lỗi)
+# ============================================================
 
 def filter_corrupt_images(meta, verbose=True):
     """Thử mở từng ảnh 1 lần (Image.verify()), loại khỏi danh sách những
-    ảnh không mở được."""
+    ảnh không mở được. Chỉ cần chạy 1 lần ở Giai đoạn 2 — kết quả đã lọc
+    sẽ được lưu lại vào cache JSON, các bước train/eval sau này không cần
+    quét lại. Lưu ý: bước này khá chậm với PlantVillage (~vài chục nghìn
+    ảnh), có thể mất vài phút — bù lại giúp tránh crash lúc train."""
     removed = []
     for c, paths in meta['class_to_images'].items():
         valid_paths = []
@@ -196,7 +264,10 @@ def filter_corrupt_images(meta, verbose=True):
     return meta
 
 
+# ============================================================
 # 4. KIỂM TRA SỐ LƯỢNG ẢNH / MẤT CÂN BẰNG LỚP
+#    -> quan trọng để chọn K hợp lý (K phải nhỏ hơn lớp ít ảnh nhất)
+# ============================================================
 
 def report_class_counts(meta):
     print(f"{'Lớp':40s} | {'Nhóm':12s} | Số ảnh")
@@ -227,9 +298,13 @@ def report_class_counts(meta):
         )
 
 
-# 5. TIỀN XỬ LÝ ẢNH 
+# ============================================================
+# 5. TIỀN XỬ LÝ ẢNH — phần còn thiếu ở bản cũ
+# ============================================================
 
-# Dùng chuẩn ImageNet vì backbone (Conv-4 / pretrained ResNet, MobileNet)
+# Chuẩn hoá theo thống kê ImageNet: MobileNetV2 (nhánh Fine-tuning) được
+# pretrained với đúng thống kê này; Conv-4 (nhánh ProtoNet) train từ đầu
+# nên dùng chung luôn để hai nhánh nhận cùng một đầu vào.
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -251,7 +326,8 @@ eval_transform = T.Compose([
 
 def load_and_preprocess(image_path, transform=eval_transform):
     """Đọc 1 ảnh từ đường dẫn, trả về tensor đã tiền xử lý.
-   """
+    Báo lỗi rõ ràng kèm đường dẫn nếu ảnh không đọc được, thay vì để
+    traceback gốc khó hiểu của PIL/torchvision hiện ra giữa lúc train."""
     try:
         img = Image.open(image_path).convert('RGB')
     except Exception as e:
@@ -270,7 +346,10 @@ def denormalize_for_display(tensor):
     return (tensor * std + mean).clamp(0, 1)
 
 
-# 6. KIỂM TRA BẰNG MẮT 
+# ============================================================
+# 6. KIỂM TRA BẰNG MẮT — bắt buộc theo checklist Giai đoạn 2
+#    (ảnh không bị méo, không bị đen)
+# ============================================================
 
 def sanity_check_images(meta, n_classes=3, n_images=3):
     """Chọn ngẫu nhiên vài lớp, vài ảnh mỗi lớp, vẽ ra để kiểm tra bằng mắt
@@ -293,13 +372,15 @@ def sanity_check_images(meta, n_classes=3, n_images=3):
             ax.axis('off')
 
     plt.tight_layout()
-    plt.savefig('/content/sanity_check.png')
+    plt.savefig(SANITY_CHECK_PATH)
     plt.show()
-    print("Đã lưu ảnh kiểm tra tại /content/sanity_check.png — xem thử có bị "
+    print(f"Đã lưu ảnh kiểm tra tại {SANITY_CHECK_PATH} — xem thử có bị "
           "méo, bị đen, hay lệch màu không trước khi coi bước này là xong.")
 
 
+# ============================================================
 # 7. CHẠY TOÀN BỘ (main)
+# ============================================================
 
 if __name__ == '__main__':
     set_seed()

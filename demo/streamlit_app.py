@@ -4,11 +4,31 @@ streamlit_app.py
 Demo Streamlit: so sánh trực tiếp Prototypical Network (few-shot)
 và Fine-tuning (live) trên cùng một ảnh lá sầu riêng.
 
+CHẠY Ở MÁY LOCAL. Chuẩn bị thư mục demo/ với cấu trúc:
+    demo/
+      streamlit_app.py          (file này)
+      protonet_conv4_best.pt
+      prototypes.json
+      support_set/
+        manifest.json
+        Leaf_Algal/00.jpg, 01.jpg, ...
+        ... (đủ 6 lớp)
+
 Cài thư viện (1 lần):
     pip install streamlit torch torchvision pillow pandas
 
-Chạy:
+Chạy (từ trong thư mục demo/):
     streamlit run streamlit_app.py
+
+File này cố ý KHÔNG import data_prep.py / episode_utils.py / train_protonet.py
+(kiến trúc Conv-4 và phép tiền xử lý được chép lại bên dưới) để ứng dụng
+chạy độc lập trên máy cá nhân, không cần dữ liệu huấn luyện hay Google Drive.
+
+LƯU Ý:
+Ứng dụng được xây dựng để so sánh hai phương pháp trên cùng tập 6 lớp
+đang đánh giá trong đề tài. Mỗi nhánh luôn trả về lớp có xác suất cao nhất
+trong 6 lớp này; ứng dụng không thực hiện cơ chế phát hiện hoặc từ chối
+ảnh ngoài phân phối (OOD).
 """
 
 import io
@@ -25,13 +45,17 @@ import torchvision.models as tvm
 import torchvision.transforms as T
 from PIL import Image
 
-MODEL_PATH = 'protonet_conv4_best.pt'
-PROTOTYPES_PATH = 'prototypes.json'
-SUPPORT_SET_DIR = 'support_set'
+# Đường dẫn tính theo vị trí file này, nên chạy `streamlit run` từ thư mục
+# nào cũng tìm đúng tài nguyên.
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(APP_DIR, 'protonet_conv4_best.pt')
+PROTOTYPES_PATH = os.path.join(APP_DIR, 'prototypes.json')
+SUPPORT_SET_DIR = os.path.join(APP_DIR, 'support_set')
 MANIFEST_PATH = os.path.join(SUPPORT_SET_DIR, 'manifest.json')
 
 IMG_SIZE = 84  # PHẢI khớp IMG_SIZE trong data_prep.py
 
+# Cấu hình đã chọn khi tune trên validation (results_snapshot/baseline_tuning_summary.json)
 FT_STEPS = 20
 FT_LR = 1e-3
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -43,7 +67,8 @@ eval_transform = T.Compose([
     T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
 ])
 
-# Thông tin hiển thị cho từng lớp bệnh 
+# Thông tin hiển thị cho từng lớp bệnh — chỉ phục vụ UI, không ảnh hưởng
+# logic mô hình. Sửa nhãn tiếng Việt tại đây nếu cần cho đúng thuật ngữ.
 CLASS_INFO = {
     'Leaf_Algal':          {'label': 'Đốm rong / tảo lá',        'emoji': '🟢', 'color': '#8BC34A'},
     'Leaf_Blight':         {'label': 'Cháy lá (Blight)',          'emoji': '🟤', 'color': '#8D6E63'},
@@ -61,7 +86,9 @@ def class_display(cls: str) -> str:
     return f"{info['emoji']} {cls} — {info['label']}"
 
 
+# ============================================================
 # 1. KIẾN TRÚC — PHẢI giống hệt lúc train
+# ============================================================
 
 def conv_block(in_channels, out_channels):
     return nn.Sequential(
@@ -86,7 +113,10 @@ class Conv4Backbone(nn.Module):
         x = self.pool(x)
         return x.view(x.size(0), -1)
 
+
+# ============================================================
 # 2. NẠP TÀI NGUYÊN
+# ============================================================
 
 @st.cache_resource
 def load_protonet():
@@ -147,14 +177,16 @@ def load_support_set():
     }
 
 
+# ============================================================
 # 3. DỰ ĐOÁN — ProtoNet
+# ============================================================
 
 def predict_protonet(protonet, image: Image.Image):
     x = eval_transform(image.convert('RGB')).unsqueeze(0)
     with torch.no_grad():
         emb = protonet['model'](x)
-        dists = torch.pow(emb - protonet['prototypes'], 2).sum(dim=1) # Tính khoảng cách giữa ảnh đầu vào và prototype của từng lớp
-        probs = F.softmax(-dists, dim=0) # Chuyển khoảng cách thành xác suất
+        dists = torch.pow(emb - protonet['prototypes'], 2).sum(dim=1)
+        probs = F.softmax(-dists, dim=0)
 
     ranked = sorted(
         zip(protonet['novel_classes'], probs.tolist()),
@@ -162,7 +194,10 @@ def predict_protonet(protonet, image: Image.Image):
     )
     return ranked
 
+
+# ============================================================
 # 4. DỰ ĐOÁN — Fine-tuning LIVE
+# ============================================================
 
 def run_live_finetune(backbone, support_set, image: Image.Image):
     novel_classes = support_set['novel_classes']
@@ -172,7 +207,7 @@ def run_live_finetune(backbone, support_set, image: Image.Image):
     for label_idx, c in enumerate(novel_classes):
         imgs = support_set['class_images'][c]
         support_x.append(imgs)
-        support_y += [label_idx] * imgs.size(0) # Tạo nhãn cho toàn bộ ảnh support của lớp hiện tại
+        support_y += [label_idx] * imgs.size(0)
     support_x = torch.cat(support_x, dim=0)
     support_y = torch.tensor(support_y)
 
@@ -180,7 +215,7 @@ def run_live_finetune(backbone, support_set, image: Image.Image):
         support_feat = backbone(support_x)
     feat_dim = support_feat.shape[1]
 
-    classifier = nn.Linear(feat_dim, n_way) # Tạo classifier mới cho 6 lớp cần nhận diện
+    classifier = nn.Linear(feat_dim, n_way)
     optimizer = torch.optim.Adam(classifier.parameters(), lr=FT_LR)
     criterion = nn.CrossEntropyLoss()
 
@@ -189,8 +224,8 @@ def run_live_finetune(backbone, support_set, image: Image.Image):
         optimizer.zero_grad()
         logits = classifier(support_feat)
         loss = criterion(logits, support_y)
-        loss.backward() # Tính gradient để cập nhật trọng số
-        optimizer.step() # cập nhật trọng số
+        loss.backward()
+        optimizer.step()
     classifier.eval()
 
     x = eval_transform(image.convert('RGB')).unsqueeze(0)
@@ -199,10 +234,13 @@ def run_live_finetune(backbone, support_set, image: Image.Image):
         logits = classifier(feat)
         probs = F.softmax(logits, dim=1).squeeze(0)
 
-    ranked = sorted(zip(novel_classes, probs.tolist()), key=lambda t: -t[1]) # Sắp xếp lớp theo xác suất giảm dần
+    ranked = sorted(zip(novel_classes, probs.tolist()), key=lambda t: -t[1])
     return ranked
 
+
+# ============================================================
 # 5. GIAO DIỆN
+# ============================================================
 
 st.set_page_config(
     page_title="Durian Leaf AI — Nhận diện bệnh lá sầu riêng",
@@ -288,21 +326,24 @@ with tab_predict:
             sample_idx = st.number_input(
                 "Ảnh #", 0, len(support_set['class_pil'][sample_class]) - 1, 0, key="sample_idx"
             )
-            use_sample = st.button("Dùng ảnh mẫu này ↴", use_container_width=True)
+            use_sample = st.button("Dùng ảnh mẫu này ↴", width='stretch')
 
         image = None
         source_label = None
+        run_key = None  # nhận biết "cùng một lượt nhận diện" khi Streamlit chạy lại trang
         if uploaded_file is not None:
             image = Image.open(uploaded_file)
             source_label = uploaded_file.name
+            run_key = f"upload:{uploaded_file.file_id}"
         elif use_sample:
             image = support_set['class_pil'][sample_class][sample_idx]
             source_label = f"mẫu: {sample_class}/{sample_idx:02d}"
+            run_key = None  # bấm nút là một lượt mới, luôn ghi lịch sử
 
         if image is not None:
             img_col, info_col = st.columns([1, 2])
             with img_col:
-                st.image(image, caption=source_label, use_container_width=True)
+                st.image(image, caption=source_label, width='stretch')
 
             col1, col2 = st.columns(2)
 
@@ -365,14 +406,19 @@ with tab_predict:
                         st.write(f"{class_display(cls)} — **{prob*100:.1f}%**")
 
             # --- Lưu lịch sử + báo cáo ---
-            st.session_state.history.append({
-                "Thời gian": datetime.now().strftime("%H:%M:%S"),
-                "Ảnh": source_label,
-                "ProtoNet": top_class,
-                "ProtoNet %": round(top_prob * 100, 1),
-                "Fine-tune": top_class_ft,
-                "Fine-tune %": round(top_prob_ft * 100, 1),
-            })
+            # Streamlit chạy lại cả trang mỗi khi người dùng chạm vào một
+            # widget bất kỳ; ảnh upload vẫn còn đó nên nếu không chặn thì
+            # cùng một ảnh bị ghi vào lịch sử nhiều lần.
+            if run_key is None or st.session_state.get('last_run_key') != run_key:
+                st.session_state.history.append({
+                    "Thời gian": datetime.now().strftime("%H:%M:%S"),
+                    "Ảnh": source_label,
+                    "ProtoNet": top_class,
+                    "ProtoNet %": round(top_prob * 100, 1),
+                    "Fine-tune": top_class_ft,
+                    "Fine-tune %": round(top_prob_ft * 100, 1),
+                })
+            st.session_state['last_run_key'] = run_key
 
             report_lines = [
                 f"Ảnh: {source_label}",
@@ -405,7 +451,7 @@ with tab_gallery:
         cols = st.columns(5)
         for i, im in enumerate(imgs):
             with cols[i % 5]:
-                st.image(im, caption=f"{i:02d}", use_container_width=True)
+                st.image(im, caption=f"{i:02d}", width='stretch')
 
 # ====================== TAB: LỊCH SỬ ======================
 with tab_history:
@@ -414,7 +460,7 @@ with tab_history:
         st.info("Chưa có lần nhận diện nào. Hãy sang tab 🔍 Nhận diện để bắt đầu.")
     else:
         df_hist = pd.DataFrame(st.session_state.history)
-        st.dataframe(df_hist, use_container_width=True, hide_index=True)
+        st.dataframe(df_hist, width='stretch', hide_index=True)
         csv = df_hist.to_csv(index=False).encode('utf-8-sig')
         st.download_button("⬇️ Tải lịch sử (.csv)", data=csv, file_name="lich_su_du_doan.csv")
         if st.button("🗑️ Xóa lịch sử"):

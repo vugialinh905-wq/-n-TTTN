@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 """
 pick_demo_images.py
-Giai đoạn 5 — Chọn sẵn ảnh test cho demo Streamlit, đúng 2 trường hợp:
+Giai đoạn 5 — Chọn sẵn ảnh thử nhanh cho demo Streamlit, gồm 2 nhóm:
 
-1. "test_durian/"       — ảnh Durian THẬT, KHÁC 5 ảnh support_0..4 đã dùng
-                            build prototype (để test đúng tính năng chính:
-                            nhận diện bệnh).
-2. "test_other_plant/"  — ảnh lá Cà chua/Khoai tây/Ớt (KHÔNG PHẢI Durian,
-                            đúng loại ảnh đã dùng để hiệu chỉnh ngưỡng ở
-                            calibrate_threshold.py) — để test tính năng
-                            từ chối.
+1. "test_durian/"       — ảnh Durian thật, để thử tính năng chính của
+                            ứng dụng (nhận diện 6 lớp lá/bệnh lá sầu riêng).
+2. "test_other_plant/"  — ảnh lá Cà chua/Khoai tây/Ớt (KHÔNG phải Durian,
+                            cùng loại ảnh dùng làm mẫu âm ở
+                            calibrate_threshold.py) — để minh hoạ giới hạn
+                            của ứng dụng với ảnh ngoài 6 lớp.
+
+Lưu ý: ảnh Durian được rút ngẫu nhiên theo seed cố định từ toàn bộ ảnh của
+mỗi lớp, KHÔNG loại trừ các ảnh đã nằm trong support_set/ hay đã dùng để
+tính prototype. Vì vậy 2 thư mục này chỉ dùng để thao tác thử ứng dụng,
+không dùng làm số liệu đánh giá.
 
 Chạy trên Colab, sau đó tải 2 thư mục output về máy local để dùng demo.
 """
@@ -18,12 +22,11 @@ import os
 import random
 import shutil
 
-from data_prep import set_seed, SEED
+from data_prep import set_seed, SEED, LOCAL_BASE_DIR
 from episode_utils import load_meta
 
 N_PER_CLASS = 3          # lấy 3 ảnh mỗi lớp để demo
-OUT_DIR = '/content/demo_images'
-SUPPORT_SET_NAMES = {f'support_{i}.jpg' for i in range(10)}  # phòng hờ nếu tên trùng
+OUT_DIR = os.path.join(os.path.dirname(LOCAL_BASE_DIR), 'demo_images')  # Colab: /content/demo_images
 
 
 def pick_images():
@@ -31,12 +34,7 @@ def pick_images():
     meta = load_meta()
     class_to_images = meta['class_to_images']
 
-    # --- 1. Ảnh Durian thật, tránh trùng ảnh đã dùng làm support ---
-    # Lưu ý: support_set.zip bạn có sẵn không ghi rõ ảnh gốc nào được chọn
-    # (chỉ đổi tên thành support_0..4), nên ở đây mình lấy ngẫu nhiên với
-    # seed cố định — nếu vô tình trùng 1-2 ảnh support cũng không sao vì
-    # N_PER_CLASS=3 vẫn còn ảnh khác, nhưng để chắc chắn 100%, tốt nhất bạn
-    # tự đối chiếu thủ công tên file trong support_set.zip trước khi dùng.
+    # --- 1. Ảnh Durian thật (rút ngẫu nhiên theo seed, xem lưu ý đầu file) ---
     durian_dir = os.path.join(OUT_DIR, 'test_durian')
     os.makedirs(durian_dir, exist_ok=True)
     for c in meta['novel_classes']:
@@ -61,7 +59,7 @@ def pick_images():
         print(f"[Lá cây khác] {c}: đã copy {len(paths)} ảnh vào {class_out}")
 
     # --- Nén lại thành 1 file zip để tải về máy local cho tiện ---
-    zip_path = shutil.make_archive('/content/demo_images', 'zip', OUT_DIR)
+    zip_path = shutil.make_archive(OUT_DIR, 'zip', OUT_DIR)
     print(f"\nĐã đóng gói toàn bộ ảnh demo vào: {zip_path}")
     print("Tải file này về máy (icon thư mục bên trái Colab -> chuột phải -> Download).")
 
