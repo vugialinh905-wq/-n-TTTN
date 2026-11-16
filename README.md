@@ -42,7 +42,7 @@ demo/                         Ứng dụng minh hoạ, chạy độc lập trên
   prototypes.json             6 vector prototype (+ ngưỡng đã hiệu chỉnh)
   support_set/                10 ảnh support mỗi lớp + manifest.json
 results_snapshot/             File JSON kết quả của benchmark ban đầu
-AI_LOG.md                     Nhật ký sử dụng công cụ AI
+(nhật ký sử dụng AI nộp riêng dạng Word, không nằm trong kho mã nguồn)
 requirements.txt
 ```
 
